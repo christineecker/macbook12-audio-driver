@@ -62,53 +62,93 @@ checksum_for() {
 mkdir -p "$build_dir" "$cache_dir"
 rm -rf "$hda_dir"
 
-checksums="$cache_dir/sha256sums-v${major_version}.asc"
-[[ -f $checksums ]] || refresh_checksums
+# Debian/Ubuntu Kernel logic adapted from https://github.com/davidjo/snd_hda_macbookpro/blob/master/install.cirrus.driver.sh
+is_debian_like=0
+# Check if we are dealing with Debian
+if [[ $(grep '^NAME=' /etc/os-release | grep -c Debian) -eq 1 ]]; then
+  is_debian_like=1
+# Check if we are dealing with Ubuntu
+elif [[ $(grep '^NAME=' /etc/os-release | grep -c Ubuntu) -eq 1 ]]; then
+  is_debian_like=1
+# For Unbuntu based distributions like Mint, ubuntu will be mentionned in ID_LIKE
+elif [[ $(grep '^ID_LIKE=' /etc/os-release | grep -c "ubuntu") -eq 1 ]]; then
+  is_debian_like=1
+# In some other Unbuntu based distributions like Pop OS, we need to check ID
+elif [ $(grep '^ID=' /etc/os-release | grep -c "ubuntu") -eq 1 ]; then
+  is_debian_like=1
+fi
 
-archive=""
-for candidate_version in "$kernel_version" "$kernel_short_version"; do
-  archive_name="linux-${candidate_version}.tar.xz"
-  expected_sha256="$(checksum_for "$archive_name")"
+if [ $is_debian_like -ge 1 ]; then
+  # NOTE for Ubuntu we need to use the distribution kernel sources as they seem
+  # to be significantly modified from the mainline kernel sources generally with backports from later kernels
+  # NOTE this will likely NOT work for Ubuntu hwe kernels which are even more highly
+  # modified with extensive backports from later kernel versions
+  # (and in any case there is no linux-source-... package for hwe kernels)
 
-  if [[ -z $expected_sha256 ]]; then
-    refresh_checksums
-    expected_sha256="$(checksum_for "$archive_name")"
-  fi
-  [[ -n $expected_sha256 ]] || continue
-
-  candidate_archive="$cache_dir/$archive_name"
-  if [[ -f $candidate_archive ]]; then
-    actual_sha256="$(sha256sum "$candidate_archive" | awk '{ print $1 }')"
+  if [ -e /usr/src/linux-source-$kernel_version.tar.bz2 ]; then
+    comp_type='bz2' # Ubuntu packages provide bz2 compression
+  elif [ -e /usr/src/linux-source-$kernel_version.tar.xz ]; then
+    comp_type='xz'  # Debian packages provde xz compression
   else
-    actual_sha256=""
+    echo "Linux kernel source not found in /usr/src: /usr/src/linux-source-$kernel_version.tar.bz2"
+    echo "assuming the linux kernel source package is not installed"
+    echo "please install the linux kernel source package:"
+    echo "sudo apt install linux-source-$kernel_version"
+    echo "if the above doesn't work because some distros don't use LTS Kernel, download the linux-source-$kernel_version .deb file"
+    echo "using Archive Manager, Open data.tar.zst, extract /usr/src/linux-source-$kernel_version.tar.bz2"
+    echo "NOTE - This does not work for HWE kernels"
+    exit 1
   fi
+  archive="/usr/src/linux-source-${kernel_version}.tar.${comp_type}"
+  kernel_version="source-$kernel_version"
+else
+  checksums="$cache_dir/sha256sums-v${major_version}.asc"
+  [[ -f $checksums ]] || refresh_checksums
+  archive=""
+  for candidate_version in "$kernel_version" "$kernel_short_version"; do
+    archive_name="linux-${candidate_version}.tar.xz"
+    expected_sha256="$(checksum_for "$archive_name")"
 
-  if [[ $actual_sha256 != "$expected_sha256" ]]; then
-    partial_archive="$candidate_archive.part"
-    rm -f "$partial_archive"
-    echo "Downloading $archive_name"
-    if ! download "$base_url/$archive_name" "$partial_archive"; then
-      rm -f "$partial_archive"
-      continue
+    if [[ -z $expected_sha256 ]]; then
+      refresh_checksums
+      expected_sha256="$(checksum_for "$archive_name")"
+    fi
+    [[ -n $expected_sha256 ]] || continue
+
+    candidate_archive="$cache_dir/$archive_name"
+    if [[ -f $candidate_archive ]]; then
+      actual_sha256="$(sha256sum "$candidate_archive" | awk '{ print $1 }')"
+    else
+      actual_sha256=""
     fi
 
-    actual_sha256="$(sha256sum "$partial_archive" | awk '{ print $1 }')"
     if [[ $actual_sha256 != "$expected_sha256" ]]; then
+      partial_archive="$candidate_archive.part"
       rm -f "$partial_archive"
-      echo "SHA-256 verification failed for $archive_name" >&2
-      exit 3
+      echo "Downloading $archive_name"
+      if ! download "$base_url/$archive_name" "$partial_archive"; then
+        rm -f "$partial_archive"
+        continue
+      fi
+
+      actual_sha256="$(sha256sum "$partial_archive" | awk '{ print $1 }')"
+      if [[ $actual_sha256 != "$expected_sha256" ]]; then
+        rm -f "$partial_archive"
+        echo "SHA-256 verification failed for $archive_name" >&2
+        exit 3
+      fi
+      mv "$partial_archive" "$candidate_archive"
     fi
-    mv "$partial_archive" "$candidate_archive"
+
+    archive="$candidate_archive"
+    kernel_version="$candidate_version"
+    break
+  done
+
+  if [[ -z $archive ]]; then
+    echo "No verified kernel.org source archive found for $kernel_release" >&2
+    exit 4
   fi
-
-  archive="$candidate_archive"
-  kernel_version="$candidate_version"
-  break
-done
-
-if [[ -z $archive ]]; then
-  echo "No verified kernel.org source archive found for $kernel_release" >&2
-  exit 4
 fi
 
 if (( major_version > 6 || (major_version == 6 && minor_version >= 17) )); then

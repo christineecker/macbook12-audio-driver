@@ -34,7 +34,7 @@ Based on davidjo's [snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbo
 
 **Ubuntu / elementary / Debian**
 ```bash
-sudo apt install curl dkms gcc make git linux-headers-$(uname -r)
+sudo apt install curl dkms gcc make git linux-headers-$(uname -r) linux-source-$(uname -r)
 ```
 **Fedora**
 ```bash
