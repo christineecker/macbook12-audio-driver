@@ -34,8 +34,16 @@ Based on davidjo's [snd_hda_macbookpro](https://github.com/davidjo/snd_hda_macbo
 
 **Ubuntu / elementary / Debian**
 ```bash
-sudo apt install curl dkms gcc make git linux-headers-$(uname -r) linux-source-$(uname -r)
+sudo apt install curl dkms gcc make git patch linux-headers-$(uname -r)
 ```
+The build script prefers the distro kernel source when it is installed
+(`sudo apt install linux-source-X.Y.Z`, matching `uname -r` without the
+`-NN-generic` suffix). Ubuntu HWE kernels have no such package; for them the
+script downloads the matching mainline tarball and overlays Ubuntu's own
+patch set for the running kernel (fetched from Launchpad), because HWE kernels
+backport changes that alter `sound/hda` struct layouts. Building against
+pristine mainline source on such a kernel produces a module that crashes at
+probe and removes the whole sound card.
 **Fedora**
 ```bash
 sudo dnf install curl dkms gcc make git kernel-devel
