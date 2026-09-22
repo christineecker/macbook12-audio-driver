@@ -97,7 +97,11 @@ static int cs_4208_playback_pcm_open(struct hda_pcm_stream *hinfo,
 			hinfo->nid = 0x04; // speaker converter (DAC) -> speaker pin 0x1d
 			err = play_a1534(codec);
 		}
-	
+		// post-routing state: mismatched struct layouts show up here as a
+		// garbage nid or rates/formats that do not match the entry values
+		codec_dbg(codec, "cs_4208_playback_pcm_open routed nid 0x%02x err %d rates 0x%08x formats 0x%016llx",
+				hinfo->nid, err, hinfo->rates, hinfo->formats);
+
 	//call_pcm_playback_hook(hinfo, codec, substream, HDA_GEN_PCM_ACT_OPEN);
 
 	//mutex_lock(&gen_spec->pcm_mutex);
@@ -305,6 +309,12 @@ int cs_4208_build_pcms_explicit(struct hda_codec *codec)
 	info->stream[SNDRV_PCM_STREAM_PLAYBACK].channels_max = 4;
 
 	info->pcm_type = HDA_PCM_TYPE_AUDIO;
+
+	codec_dbg(codec, "cs_4208_build_pcms_explicit nid 0x%02x rates 0x%08x formats 0x%016llx channels_max %u",
+			info->stream[SNDRV_PCM_STREAM_PLAYBACK].nid,
+			info->stream[SNDRV_PCM_STREAM_PLAYBACK].rates,
+			info->stream[SNDRV_PCM_STREAM_PLAYBACK].formats,
+			info->stream[SNDRV_PCM_STREAM_PLAYBACK].channels_max);
 
 	codec_dbg(codec, "cs_4208_build_pcms_explicit end");
 	return retval;
