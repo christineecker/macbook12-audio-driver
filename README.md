@@ -43,7 +43,11 @@ script downloads the matching mainline tarball and overlays Ubuntu's own
 patch set for the running kernel (fetched from Launchpad), because HWE kernels
 backport changes that alter `sound/hda` struct layouts. Building against
 pristine mainline source on such a kernel produces a module that crashes at
-probe and removes the whole sound card.
+probe and removes the whole sound card. If that patch set cannot be fetched the
+script stops rather than build such a module; set
+`MACBOOK12_AUDIO_ALLOW_PRISTINE=1` to override (not recommended). The source
+tree actually used is printed at the end of the run and recorded in
+`build/source-info.txt` — quote it when reporting a build problem.
 **Fedora**
 ```bash
 sudo dnf install curl dkms gcc make git kernel-devel

@@ -94,8 +94,10 @@ if [ $is_debian_like -ge 1 ] && [ $is_debian_source_available -eq 1 ]; then
   # HWE kernels have no linux-source-... package at all, so we fall through to
   # downloading the matching mainline kernel.org tarball below instead.
   archive="/usr/src/linux-source-${kernel_version}.tar.${comp_type}"
+  kernel_source_desc="distro source package linux-source-${kernel_version}"
   kernel_version="source-$kernel_version"
 else
+  kernel_source_desc="pristine mainline ${kernel_version}"
   checksums="$cache_dir/sha256sums-v${major_version}.asc"
   [[ -f $checksums ]] || refresh_checksums
   archive=""
@@ -183,6 +185,34 @@ if [ $is_debian_like -ge 1 ] && [ $is_debian_source_available -eq 0 ] \
   fi
 fi
 
+# Never build against pristine mainline on a distro kernel that has no source
+# package: the struct layouts would not match the running kernel and loading the
+# module can Oops in probe, taking the sound card down until the next reboot.
+# Fail closed instead - a warning scrolling past in a DKMS build is far too easy
+# to miss for a failure that severe.
+if [ $is_debian_like -ge 1 ] && [ $is_debian_source_available -eq 0 ] \
+   && [[ -z $ubuntu_overlay ]]; then
+  if [[ -n ${MACBOOK12_AUDIO_ALLOW_PRISTINE:-} ]]; then
+    echo "warning: MACBOOK12_AUDIO_ALLOW_PRISTINE is set; building against" \
+         "pristine mainline sources anyway. The module may crash at probe." >&2
+  else
+    echo "Refusing to build against pristine mainline sources for $kernel_release." >&2
+    echo >&2
+    echo "This kernel ships no linux-source package and the matching Ubuntu patch" >&2
+    echo "set could not be obtained, so sound/hda struct layouts would not match" >&2
+    echo "the running kernel. Loading such a module can Oops in probe and take the" >&2
+    echo "sound card down until reboot." >&2
+    echo >&2
+    echo "Resolve one of the following:" >&2
+    echo "  - install the distro kernel source:" >&2
+    echo "      sudo apt install linux-source-\$(uname -r | cut -d- -f1)" >&2
+    echo "  - restore network access to launchpad.net and re-run" >&2
+    echo "  - override anyway (NOT recommended):" >&2
+    echo "      MACBOOK12_AUDIO_ALLOW_PRISTINE=1 $0 $kernel_release" >&2
+    exit 8
+  fi
+fi
+
 if (( major_version > 6 || (major_version == 6 && minor_version >= 17) )); then
   makefile_name="Makefile_cs420x"
   hda_subdir="sound/hda"
@@ -241,6 +271,7 @@ if [[ -n $ubuntu_overlay ]]; then
       echo "Failed to apply the Ubuntu kernel patches to $hda_dir" >&2
       exit 7
     fi
+    kernel_source_desc="$kernel_source_desc + Ubuntu patch set $(basename "$ubuntu_overlay")"
   fi
 fi
 
@@ -264,3 +295,11 @@ if (( major_version < 5 || (major_version == 5 && minor_version < 6) )); then
 fi
 
 cp "$script_dir/$makefile_name" "$script_dir/Makefile"
+
+# Record which of the three source paths was used. Answers the first question
+# in any bug report without having to reconstruct it from the build log.
+echo "Kernel source: $kernel_source_desc"
+printf '%s\n' \
+  "kernel_release: $kernel_release" \
+  "kernel_source: $kernel_source_desc" \
+  > "$build_dir/source-info.txt"
